@@ -1,0 +1,76 @@
+{
+    "unique_id": "example_patient_001",
+    "cgm": {
+        "time": ["2025-01-25 12:00:00 UTC-05:00",
+                 "2025-01-25 12:05:00 UTC-05:00",
+                 "2025-01-25 12:10:00 UTC-05:00",
+                 "2025-01-25 12:15:00 UTC-05:00", 
+                 "2025-01-25 12:20:00 UTC-05:00",
+                 "2025-01-25 12:25:00 UTC-05:00",
+                 "2025-01-25 12:30:00 UTC-05:00",
+                 "2025-01-25 12:35:00 UTC-05:00",
+                 "2025-01-25 12:40:00 UTC-05:00",
+                 "2025-01-25 14:40:00 UTC-05:00",
+                 "2025-01-25 14:45:00 UTC-05:00"],
+        "value": [100, 102, 105, 110,  108,  107,  106,  104,  103,  135,   140]
+    }, 
+    "bolus": {
+        "time": ["2025-01-25 12:08:32 UTC-05:00", "2025-01-25 12:45:12 UTC-05:00"],
+        "value": [3.5, 2.02]
+    },
+    "basal_rate": {
+        "time": ["2025-01-25 12:00:00 UTC-05:00",
+                 "2025-01-25 12:05:00 UTC-05:00",
+                 "2025-01-25 12:10:00 UTC-05:00",
+                 "2025-01-25 12:25:00 UTC-05:00",
+                 "2025-01-25 12:30:00 UTC-05:00",
+                 "2025-01-25 12:35:00 UTC-05:00",
+                 "2025-01-25 12:40:00 UTC-05:00",
+                 "2025-01-25 14:40:00 UTC-05:00",
+                 "2025-01-25 14:45:00 UTC-05:00"],
+        "value": [0.8, 0.2, 0.0, 0.31,  0.4,  0.5,  0.6,  0.7,  0.9]
+    },
+    "carbs": {
+        "time": ["2025-01-25 12:08:32 UTC-05:00"],
+        "value": [45]
+    },
+    "smbg": {
+        "time": ["2025-01-25 12:08:32 UTC-05:00", 
+                 "2025-01-25 12:45:12 UTC-05:00",
+                 "2025-01-25 14:25:18 UTC-05:00"],
+        "value": [95, 110, 130]
+    },
+    "metadata": {
+        "unique_id": "id number of the subject",
+        "time": {
+            "unit": "Y-m-d H:M:S Z",
+            "description": "Timestamps for each data point, in local time with timezone info"
+        },
+        "cgm": {
+            "unit": "mg/dL",
+            "description": "Continuous Glucose Monitoring (CGM) data",
+            "device": "Dexcom G6"
+        },
+        "bolus": {
+            "unit": "U",
+            "description": "Insulin bolus data, meal and correction, in units",
+            "device": "Tandem T:slim X2",
+            "insulin": "novolog"
+        },
+        "basal_rate": {
+            "unit": "U/h",
+            "description": "Basal insulin delivery data",
+            "device": "Tandem T:slim X2",
+            "insulin": "novolog"
+        },
+        "carbs": {
+            "unit": "g",
+            "description": "User announced carbohydrate intake associated with bolus"
+        },
+        "smbg": {
+            "unit": "mg/dL",
+            "description": "Self-Monitored Blood Glucose (SMBG) data",
+            "device": "Accu-Chek"
+        }
+    }
+}

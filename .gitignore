@@ -1,0 +1,15 @@
+__pycache__
+
+# ignore raw data files in case they are saved here on accident
+*.mat
+*.xlsx
+*.csv
+*.json
+
+logs/
+.ipynb_checkpoints/
+.DS_Store
+.vscode/
+.idea/
+*.asv
+*.png
