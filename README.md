@@ -48,7 +48,7 @@ This design avoids imposing a fixed sample frequency or requiring time alignment
 
 A complete example can be viewed here:
 
-[example.json](./example.json)
+[example.json](./examples/example.json)
 
 ---
 
