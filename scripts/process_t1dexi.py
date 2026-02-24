@@ -45,9 +45,6 @@ def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
             .fill_null(0.0)               # Fill nulls with 0.0  (insulin suspension)
         ])
     )
-    if basal_data.height == 0:
-        print(f"Subject has no basal data, skipping subject: {output_path}")
-        return None
 
     basal_type = None
     start_time_basal = None
@@ -64,12 +61,17 @@ def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
         basal_data = basal_data.fill_null(0)
         basal_type = "injection"
 
+    if basal_data.height == 0:
+        print(f"Subject has no basal data, skipping subject: {output_path}")
+        return None
+
     #FACM-Bolus
     bolus_data = FACM.filter(pl.col("FATESTCD") == "INSBOLUS").with_columns(
         pl.col("FAORRES").str.strip_chars().cast(pl.Float64)
     )
     if bolus_data.height == 0:
         print(f"Subject has no bolus data, skipping subject: {output_path}")
+        return None
     start_time_bolus = bolus_data["time"][0]
 
     # LB Data Processing (CGM)
