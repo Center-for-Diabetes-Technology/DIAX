@@ -26,7 +26,7 @@ if iscell(dayNo)
         if isempty(obj.(fn{1}))
             continue;
         end
-        times.(fn{1}) = datenum(obj.(fn{1}).time);
+        times.(fn{1}) = datenum(obj.(fn{1}).Time);
     end
     firstDay = datenum(dateshift(obj.startDate, 'start', 'day'));
     out = cellfun(@(c)(obj.getDay(c, offset, times, firstDay)), dayNo);
@@ -79,7 +79,7 @@ for fn = fields_
     if ~isempty(times)
         time = times.(fn{1});
     else
-        time = datenum(obj.(fn{1}).time);
+        time = datenum(obj.(fn{1}).Time);
     end
     if useOptimizedCode
         idx = (time - firstDay) >= dayNo(1) - 1 & (time - firstDay) < dayNo(end);
@@ -104,11 +104,11 @@ for fn = fields_
 
     if strcmp(fn{1}, 'basalRate')
         % copy last value for basalRate
-        if ~isempty(out.basalRate) && ~isempty(out.cgm) && out.basalRate.time(1) > out.cgm.time(1)
+        if ~isempty(out.basalRate) && ~isempty(out.cgm) && out.basalRate.Time(1) > out.cgm.Time(1)
             lastIdx = find(idx);
             lastIdx = lastIdx(1) - 1;
             if lastIdx > 0
-                out.basalRate = [timetable(out.cgm.time(1), obj.basalRate.value(lastIdx), 'VariableNames', {'value'}); out.basalRate];
+                out.basalRate = [timetable(obj.basalRate.Value(lastIdx), 'RowTimes', out.cgm.Time(1), 'VariableNames', {'Value'}); out.basalRate];
             end
         end
     end

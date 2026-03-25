@@ -157,7 +157,13 @@ def time_align(
         end_time = max(max(diax_data[col]['time']) for col in time_keys)
 
     # create the common time axis
-    common_time_index = pd.date_range(start=start_time, end=end_time, freq=pd.Timedelta(minutes=sampling_period))
+    ref = pd.Series(index=pd.to_datetime([start_time, end_time]), data=[0, 0])
+
+    common_time_index = (
+        ref.resample(f'{sampling_period}min', label="right", closed="right")
+        .asfreq()
+        .index
+    )
 
     # resample each time series to the common time axis
     combined_df = pd.DataFrame(index=common_time_index)
@@ -221,6 +227,7 @@ def time_align(
 
     # Drop rows where all columns are NaN
     combined_df.dropna(how='all', inplace=True)
+    combined_df.index.name = 'time'
 
     return combined_df
 

@@ -8,7 +8,8 @@ saveFolder = '';
 useBG = false;
 freqInDays = 7;
 durationInDays = NaN;
-fields = {'GMI', 'Smbg', 'SmbgCV', 'TIR', 'Insulin', 'SmbgHypo2', 'SmbgHypo1', 'TBR1'};
+% default 6 fields to compute
+fields = {'TIR', 'TBR1', 'TAR1', 'Insulin', 'Basal', 'Bolus'};
 for nVar = 1:2:length(varargin)
     switch lower(varargin{nVar})
         case {'name', 'names', 'legend', 'arms'}

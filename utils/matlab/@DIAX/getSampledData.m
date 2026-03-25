@@ -51,8 +51,8 @@ data.name = obj.name;
 data.stepTime = sampleTime;
 
 if cropToCGM
-    firstCGMTime = minutes(obj.cgm.time(1) - dateshift(obj.startDate, 'start', 'day'));
-    lastCGMTime = minutes(obj.cgm.time(end) - dateshift(obj.startDate, 'start', 'day'));
+    firstCGMTime = minutes(obj.cgm.Time(1) - dateshift(obj.startDate, 'start', 'day'));
+    lastCGMTime = minutes(obj.cgm.Time(end) - dateshift(obj.startDate, 'start', 'day'));
     data.time = floor(firstCGMTime/sampleTime) * sampleTime:sampleTime:(ceil((lastCGMTime + 1e-6) / sampleTime) - 1) * sampleTime;
     data.time = round(data.time(:));
 else
@@ -109,8 +109,8 @@ for k = 1:length(fn)
     switch fn{k}
         case {'cgm', 'bg'}
             tt = obj.(fn{k});
-            val_ = tt.value;
-            time_ = minutes(tt.time - dateshift(obj.startDate, 'start', 'day'));
+            val_ = tt.Value;
+            time_ = minutes(tt.Time - dateshift(obj.startDate, 'start', 'day'));
             if strcmp(fn{k}, 'cgm')
                 val_(val_ < 40) = 39;
                 val_(val_ > 400) = 401;
@@ -161,8 +161,8 @@ for k = 1:length(fn)
 
         case {'basalRate', 'basalRateAuto', 'basalRateMax'}
             tt = obj.(fn{k});
-            val_ = tt.value;
-            time_ = minutes(tt.time - dateshift(obj.startDate, 'start', 'day'));
+            val_ = tt.Value;
+            time_ = minutes(tt.Time - dateshift(obj.startDate, 'start', 'day'));
             if size(tt, 1) == 1
                 data.(fn{k}) = val_(1) * ones(size(data.time));
             else
@@ -193,8 +193,8 @@ for k = 1:length(fn)
             end
         case {'pumpBasal', 'carbRatio', 'insulinSensitivity', 'fixedDose', 'glucoseTarget', 'tdi', 'tdiProgrammed'}
             tt = obj.(fn{k});
-            val_ = tt.value;
-            time_ = minutes(tt.time - dateshift(obj.startDate, 'start', 'day'));
+            val_ = tt.Value;
+            time_ = minutes(tt.Time - dateshift(obj.startDate, 'start', 'day'));
             if size(tt, 1) == 1
                 data.(fn{k}) = val_(1) * ones(size(data.time));
             else
@@ -205,15 +205,15 @@ for k = 1:length(fn)
                 'treat', 'bolus', 'bolusPumpBC', 'bolusAuto', 'bolusRecomm', 'bolusManual', 'bolusCarb', 'bolusCorr' ...
                 'bolusMealRecomm', 'bolusCorrRecomm', 'intermedInj', 'basalInj', 'carbsType', 'hba1c'}
             tt = obj.(fn{k});
-            val_ = tt.value;
-            time_ = minutes(tt.time - dateshift(obj.startDate, 'start', 'day'));
+            val_ = tt.Value;
+            time_ = minutes(tt.Time - dateshift(obj.startDate, 'start', 'day'));
             timeMat_ = data.time' - time_;
             data.(fn{k}) = sum(val_.*(timeMat_ >= -sampleTime / 2 & timeMat_ < sampleTime / 2), 1);
 
         case {'smbg', 'smbgFasting', 'fbg'}
             tt = obj.(fn{k});
-            val_ = tt.value;
-            time_ = minutes(tt.time - dateshift(obj.startDate, 'start', 'day'));
+            val_ = tt.Value;
+            time_ = minutes(tt.Time - dateshift(obj.startDate, 'start', 'day'));
             timeMat_ = data.time' - time_;
             data.(fn{k}) = sum(val_.*(timeMat_ >= -sampleTime / 2 & timeMat_ < sampleTime / 2), 1)./sum(timeMat_ >= -sampleTime / 2 & timeMat_ < sampleTime / 2, 1);
 

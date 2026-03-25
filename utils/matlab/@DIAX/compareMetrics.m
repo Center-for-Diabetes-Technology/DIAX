@@ -1,4 +1,4 @@
-function [ax1, tabMetrics] = compareMetrics(subjGrp, varargin)
+function [fig, ax, tabMetrics] = compareMetrics(subjGrp, varargin)
 
 if ~iscell(subjGrp)
     subjGrp = {subjGrp};
@@ -14,23 +14,24 @@ colors = {...
     [0, 0.4470, 0.7410], ...
     [0.3010, 0.7450, 0.9330], ...
     [0.6350, 0.0780, 0.1840]};
-ax1 = 0;
+ax = 0;
 metrics = {'tar1', 'tar2', 'tir', 'titr', 'tbr1', 'tbr2', ...
     'ntar', 'ntir', 'ntbr', ...
     'dtar', 'dtir', 'dtbr', ...
-    'avgg', 'sdg', 'cvg', ...
-    'gmi', 'lbgi', 'hbgi', 'bgi', ...
+    'gmi', 'avgg', 'sdg', 'cvg', ...
+    'lbgi', 'hbgi', 'bgi', 'gri', ...
     'tdi', 'tdba', 'tdbo', 'tdcbo', 'ntdbo', 'ntdcbo', ...
-    'carb', 'carbcount', 'carbann', 'treat'};
+    'carb', 'carbcount', 'carbann', 'treat', 'ntreat', ...
+     };
 groups = {
     {'tar1', 'tar2', 'tir', 'titr', 'tbr1', 'tbr2'}, ...
     {'ntar', 'ntir', 'ntbr'}, ...
     {'dtar', 'dtir', 'dtbr'}, ...
-    {'avgg', 'sdg', 'cvg'}, ...
+    {'gmi', 'avgg', 'sdg', 'cvg'}, ...
     {'avgfast', 'sdfast', 'cvfast'}, ...
-    {'gmi', 'lbgi', 'hbgi', 'bgi'}, ...
+    {'lbgi', 'hbgi', 'bgi', 'gri'}, ...
     {'tdi', 'tdba', 'tdbo', 'tdcbo', 'ntdbo', 'ntdcbo'}, ...
-    {'carb', 'carbcount', 'carbann', 'treat'}, ...
+    {'carb', 'carbcount', 'carbann', 'treat', 'ntreat'}, ...
     };
 
 for nVar = 1:2:length(varargin)
@@ -40,7 +41,7 @@ for nVar = 1:2:length(varargin)
         case {'shortname', 'shortnames', 'shortlegend'}
             shortnames = varargin{nVar+1};
         case {'ax', 'axes'}
-            ax1 = varargin{nVar+1};
+            ax = varargin{nVar+1};
         case {'color', 'colors'}
             colors = varargin{nVar+1};
         case {'metric', 'metrics'}
@@ -56,39 +57,58 @@ if isempty(shortnames)
     end
 end
 
-if ~isa(ax1, 'matlab.graphics.axis.Axes')
+if ~isa(ax, 'matlab.graphics.axis.Axes')
     subjGrpAll = [subjGrp{:}];
-    figHandle1 = mod(sum([subjGrpAll.figHandle], 'omitnan') + sum(double([shortnames{:}])) + 3, 9973);
+    figHandle1 = mod(sum([subjGrpAll.figHandle], 'omitnan') + sum(double([shortnames{:}])) + 13, 9973);
 
     if ishandle(figHandle1)
-        fig1 = figure(figHandle1);
+        fig = figure(figHandle1);
     else
-        fig1 = figure(figHandle1);
-        set(fig1, 'name', 'Subject::plotCompare', ...
+        fig = figure(figHandle1);
+        set(fig, 'name', 'Subject::plotCompare', ...
             'numbertitle', 'off', ...
             'units', 'normalized', ...
             'outerposition', [0, 0, 1, 1], ...
             'defaultAxesColorOrder', [[1, 0, 0]; [0, 0, 1]]);
     end
-    ax1 = axes; % Create a new axis
+    ax = axes; % Create a new axis
+else
+    fig = ax.Parent;
 end
 
     % Helper functions
     function writeAverageInfo(infoArray, col, metricName)
         meanVal = mean(infoArray, "omitnan");
         stdVal = std(infoArray, [], 'omitnan');
-        text(ax1, marginX + posX + (col-1)*offset, linePos(line, spacer), ...
+        medianVal = median(infoArray, 'omitnan');
+        iqr1 = prctile(infoArray, 25);
+        iqr2 = prctile(infoArray, 75);
+        
+        text(ax, marginX + posX + (col-1)*offset, linePos(line, spacer), ...
             sprintf('%4.2f (%4.2f)', meanVal, stdVal), 'Color', 'k', 'FontSize', 12);
 
         % Store values in a struct to later convert to table
-        if ~exist('table_dat', 'var') || isempty(table_dat) || ~ismember(metricName, table_dat.Properties.RowNames)
+        if ~exist('table_dat', 'var') || isempty(table_dat)
             if numel(subjGrp) == 2
-                table_dat(metricName, :) = array2table(repmat({''}, 1, numel(shortnames)+2), 'VariableNames', {shortnames{:}, 'ETD', 'PValue'});
+                varNames = {};
+                for i = 1:numel(shortnames)
+                    varNames = [varNames, {[shortnames{i} ' Mean']}, {[shortnames{i} ' Median']}];
+                end
+                varNames = [varNames, {'ETD', 'PValue'}];
+                table_dat = array2table(repmat({''}, 1, numel(varNames)), 'RowNames', {metricName}, 'VariableNames', varNames);
             else
-                table_dat(metricName, :) = array2table(repmat({''}, 1, numel(shortnames)), 'VariableNames', shortnames);
+                varNames = {};
+                for i = 1:numel(shortnames)
+                    varNames = [varNames, {[shortnames{i} ' Mean']}, {[shortnames{i} ' Median']}];
+                end
+                table_dat = array2table(repmat({''}, 1, numel(varNames)), 'RowNames', {metricName}, 'VariableNames', varNames);
             end
+        elseif ~ismember(metricName, table_dat.Properties.RowNames)
+            newRow = array2table(repmat({''}, 1, numel(table_dat.Properties.VariableNames)), 'RowNames', {metricName}, 'VariableNames', table_dat.Properties.VariableNames);
+            table_dat = [table_dat; newRow];
         end
-        table_dat{metricName, shortnames{col}} = {sprintf('%4.2f (%4.2f)', meanVal, stdVal)};
+        table_dat{metricName, [shortnames{col} ' Mean']} = {sprintf('%4.2f (%4.2f)', meanVal, stdVal)};
+        table_dat{metricName, [shortnames{col} ' Median']} = {sprintf('%4.2f [%4.2f - %4.2f]', medianVal, iqr1, iqr2)};
     end
 
 
@@ -100,30 +120,39 @@ end
             [~, pValue, ~, stats] = ttest(info1, info2);
             diffVal = mean(info2 - info1, "omitnan");
         end
-        ci = diffVal + tinv([0.025 0.975], stats.df) * stats.sd / sqrt(length(info1));
         diffText = sprintf('%4.2f', diffVal);
-        ciText = sprintf('[%4.2f, %4.2f]', ci(1), ci(2));
-        pValueText = sprintf('P=%4.2f', pValue);
-        text(ax1, marginX + posX + 2*offset, linePos(line, spacer), ...
-            sprintf('%s %s %s)', diffText, ciText, pValueText), 'Color', 'k', 'FontSize', 12);
+        if isscalar(info1) || isscalar(info2)
+            text(ax, marginX + posX + 2*offset, linePos(line, spacer), ...
+                sprintf('%s', diffText), 'Color', 'k', 'FontSize', 12);
 
-        % Store difference values
-        table_dat(metricName, 'ETD') = {sprintf('%s %s', diffText, ciText)};
-        table_dat(metricName, 'PValue') = {sprintf('P=%4.2f', pValue)};
+            % Store difference values
+            table_dat(metricName, 'ETD') = {sprintf('%s', diffText)};
+            table_dat(metricName, 'PValue') = {'N/A'};
+        else
+            ci = diffVal + tinv([0.025 0.975], stats.df) * stats.sd / sqrt(length(info1));
+            ciText = sprintf('[%4.2f, %4.2f]', ci(1), ci(2));
+            pValueText = sprintf('P=%4.2f', pValue);
+            text(ax, marginX + posX + 2*offset, linePos(line, spacer), ...
+                sprintf('%s %s %s)', diffText, ciText, pValueText), 'Color', 'k', 'FontSize', 12);
+
+            % Store difference values
+            table_dat(metricName, 'ETD') = {sprintf('%s %s', diffText, ciText)};
+            table_dat(metricName, 'PValue') = {sprintf('P=%4.2f', pValue)};
+        end
     end
 
-ax1.Tag = 'summary';
+ax.Tag = 'summary';
 
 table_dat = table;
 
-hold(ax1, 'on');
-ax1.XLim = [0, 1];
-ax1.YLim = [0, 1];
-ax1.XAxis.Visible = 'off';
-ax1.YAxis.Visible = 'off';
-ax1.Color = 'none';
+hold(ax, 'on');
+ax.XLim = [0, 1];
+ax.YLim = [0, 1];
+ax.XAxis.Visible = 'off';
+ax.YAxis.Visible = 'off';
+ax.Color = 'none';
 
-rectangle(ax1, 'Position', [0.0, 0.0, 1.0, 1.0], 'EdgeColor', [0.5, 0.5, 0.5], 'LineWidth', 1.5, 'FaceColor', [0.97, 0.97, 0.97]);
+rectangle(ax, 'Position', [0.0, 0.0, 1.0, 1.0], 'EdgeColor', [0.5, 0.5, 0.5], 'LineWidth', 1.5, 'FaceColor', [0.97, 0.97, 0.97]);
 
 linesNbr = numel(metrics);
 
@@ -167,13 +196,13 @@ end
 line = 0;
 spacer = 0;
 line = line + 1;
-plot(ax1, [marginX, marginX + posX - 0.03], [linePos(line, spacer), linePos(line, spacer)]-0.02, 'color', [0.5, 0.5, 0.5], 'LineWidth', 1.5);
-text(ax1, marginX, linePos(line, spacer), 'Summary', 'Color', 'k', 'FontSize', 14, 'FontWeight', 'bold');
+plot(ax, [marginX, marginX + posX - 0.03], [linePos(line, spacer), linePos(line, spacer)]-0.02, 'color', [0.5, 0.5, 0.5], 'LineWidth', 1.5);
+text(ax, marginX, linePos(line, spacer), 'Summary', 'Color', 'k', 'FontSize', 14, 'FontWeight', 'bold');
 for gr = numel(subjGrp):-1:1
-    text(ax1, marginX + posX + (gr-1)*offset, linePos(line, spacer), sprintf('%s (n=%d)', shortnames{gr}, numel(subjGrp{gr})), 'Color', colors{gr}, 'FontSize', 14, 'FontWeight', 'bold');
+    text(ax, marginX + posX + (gr-1)*offset, linePos(line, spacer), sprintf('%s (n=%d)', shortnames{gr}, numel(subjGrp{gr})), 'Color', colors{gr}, 'FontSize', 14, 'FontWeight', 'bold');
 end
 if numel(subjGrp) == 2
-    text(ax1, marginX + posX + 2*offset, linePos(line, spacer), 'Diff', 'Color', 'k', 'FontSize', 14, 'FontWeight', 'bold');
+    text(ax, marginX + posX + 2*offset, linePos(line, spacer), 'Diff', 'Color', 'k', 'FontSize', 14, 'FontWeight', 'bold');
 end
 
 % if TAR in metrics
@@ -190,7 +219,8 @@ if any(ismember(metrics, group))
         'titr', 70, 140.5, 'Tight Range (%)'; ... % 70-140
         'tbr1', 0, 70, 'Time <70 (%)'; ... % <70
         'tbrp1', 0, 63, 'Time <63 Preg (%)'; ... % <63
-        'tbr2', 0, 54, 'Time <54 (%)'}; % <54
+        'tbr2', 0, 54, 'Time <54 (%)'; ... % <54
+        };
 
     for i = 1:size(metricList, 1)
         metric = metricList{i, 1};
@@ -200,7 +230,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(subjGrp{gr}.getTimeIn(lowerBound, upperBound), gr, metricLabel);
             end
@@ -231,7 +261,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(subjGrp{gr}.getTimeIn(lowerBound, upperBound, timeRange), gr, metricLabel);
             end
@@ -262,7 +292,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(subjGrp{gr}.getTimeIn(lowerBound, upperBound, timeRange), gr, metricLabel);
             end
@@ -276,9 +306,11 @@ end
 countGrp = countGrp + 1;
 group = groups{countGrp};
 metricsList = {...
+    'gmi', @(ii) subjGrp{ii}.getGMI(), 'GMI (%)'; ...
     'avgg', @(ii) subjGrp{ii}.getGMean(), 'Avg Glucose (mg/dl)';
     'sdg', @(ii) subjGrp{ii}.getGlucoseSD(), 'SD Glucose (mg/dl)';
-    'cvg', @(ii) subjGrp{ii}.getGlucoseCV(), 'CV Glucose (%)'};
+    'cvg', @(ii) subjGrp{ii}.getGlucoseCV(), 'CV Glucose (%)';
+    };
 
 if any(ismember(metrics, group))
     spacer = spacer + 1;
@@ -289,7 +321,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(funcHandle(gr), gr, metricLabel);
             end
@@ -317,7 +349,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(funcHandle(gr), gr, metricLabel);
             end
@@ -331,10 +363,11 @@ end
 countGrp = countGrp + 1;
 group = groups{countGrp};
 metricsList = {...
-    'gmi', @(ii) subjGrp{ii}.getGMI(), 'GMI (%)';
-    'lbgi', @(ii) subjGrp{ii}.getLBGI(), 'Low BG Index';
-    'hbgi', @(ii) subjGrp{ii}.getHBGI(), 'High BG Index';
-    'bgi', @(ii) subjGrp{ii}.getLBGI() + subjGrp{ii}.getHBGI(), 'BG Risk Index'};
+    'lbgi', @(ii) subjGrp{ii}.getLBGI(), 'Low BG Index'; ...
+    'hbgi', @(ii) subjGrp{ii}.getHBGI(), 'High BG Index'; ...
+    'bgi', @(ii) subjGrp{ii}.getLBGI() + subjGrp{ii}.getHBGI(), 'BG Risk Index'; ...
+    'gri', @(ii) subjGrp{ii}.getGRI(), 'Glucose Risk Index'; ...
+    };
 
 if any(ismember(metrics, group))
     spacer = spacer + 1;
@@ -345,7 +378,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(funcHandle(gr), gr, metricLabel);
             end
@@ -370,7 +403,7 @@ if any(ismember(metrics, group))
             'tdi',  @(ii) subjGrp{ii}.getTotalInsulin(),  'Daily Insulin (U)';
             'tdba', @(ii) subjGrp{ii}.getTotalBasal(),    'Daily Basal (U)';
             'tdbo', @(ii) subjGrp{ii}.getTotalBolus(),    'Daily Bolus (U)';
-            'tdcbo', @(ii) subjGrp{ii}.getTotalCarbBolus(),    'Daily Carb Bolus (U)';
+            'tdcbo', @(ii) subjGrp{ii}.getTotalCarbBolus(),    'Daily CarbBolus (U)';
             'ntdbo', @(ii) subjGrp{ii}.getNumberOfBolus(), '#Bolus';
             'ntdbo', @(ii) subjGrp{ii}.getNumberOfCarbBolus(), '#Carb Bolus'};
     else
@@ -378,7 +411,7 @@ if any(ismember(metrics, group))
             'tdi',  @(ii) subjGrp{ii}.getTotalInsulin() / duration_,  'Daily Insulin (U/day)';
             'tdba', @(ii) subjGrp{ii}.getTotalBasal() / duration_,    'Daily Basal (U/day)';
             'tdbo', @(ii) subjGrp{ii}.getTotalBolus() / duration_,    'Daily Bolus (U/day)';
-            'tdcbo', @(ii) subjGrp{ii}.getTotalCarbBolus() / duration_,    'Daily Carb Bolus (U/day)';
+            'tdcbo', @(ii) subjGrp{ii}.getTotalCarbBolus() / duration_,    'Daily CarbBolus (U/day)';
             'ntdbo', @(ii) subjGrp{ii}.getNumberOfBolus() / duration_, '#Bolus per day';
             'ntdcbo', @(ii) subjGrp{ii}.getNumberOfCarbBolus() / duration_, '#Carb Bolus per day'};
     end
@@ -390,7 +423,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(funcHandle(gr), gr, metricLabel);
             end
@@ -411,17 +444,21 @@ if any(ismember(metrics, group))
     duration_ = days(median([data.duration]));
 
     if duration_ < 1
-    metricsList = {...
-        'carb',      @(ii) subjGrp{ii}.getTotalCarbActual(),   'Carbs Consum (g)';
-        'carbcount', @(ii) subjGrp{ii}.getTotalCarb(),        'Carbs Count (g)';
-        'carbann',   @(ii) subjGrp{ii}.getTotalCarbAnnounced(), '#Carbs Ann';
-        'treat',     @(ii) subjGrp{ii}.getTotalTreat(),       'Daily Treat (g)'};
+        metricsList = {...
+            'carb',      @(ii) subjGrp{ii}.getTotalCarbActual(),   'Carbs Consum (g)';
+            'carbcount', @(ii) subjGrp{ii}.getTotalCarb(),        'Carbs Count (g)';
+            'carbann',   @(ii) subjGrp{ii}.getTotalCarbAnnounced(), '#Carbs Ann';
+            'treat',     @(ii) subjGrp{ii}.getTotalTreat(),       'Daily Treat (g)';
+            'ntreat',     @(ii) subjGrp{ii}.getNumTreat(),       'Daily Treat (#)';
+            };
     else
-    metricsList = {...
-        'carb',      @(ii) subjGrp{ii}.getTotalCarbActual()/duration_,   'Carbs Consum (g/day)';
-        'carbcount', @(ii) subjGrp{ii}.getTotalCarb()/duration_,        'Carbs Count (g/day)';
-        'carbann',   @(ii) subjGrp{ii}.getTotalCarbAnnounced()/duration_, '#Carbs Ann per day';
-        'treat',     @(ii) subjGrp{ii}.getTotalTreat()/duration_,       'Daily Treat (g/day)'};
+        metricsList = {...
+            'carb',      @(ii) subjGrp{ii}.getTotalCarbActual()/duration_,   'Carbs Consum (g/day)';
+            'carbcount', @(ii) subjGrp{ii}.getTotalCarb()/duration_,        'Carbs Count (g/day)';
+            'carbann',   @(ii) subjGrp{ii}.getTotalCarbAnnounced()/duration_, '#Carbs Ann per day';
+            'treat',     @(ii) subjGrp{ii}.getTotalTreat()/duration_,       'Daily Treat (g/day)';
+            'ntreat',     @(ii) subjGrp{ii}.getNumTreat()/duration_,       '#Treat (#/day)';
+            };
     end
 
     for i = 1:size(metricsList, 1)
@@ -431,7 +468,7 @@ if any(ismember(metrics, group))
 
         if ismember(metric, metrics)
             line = line + 1;
-            text(ax1, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
+            text(ax, marginX, linePos(line, spacer), metricLabel, 'Color', 'k', 'FontSize', 12, 'FontWeight', 'bold');
             for gr = numel(subjGrp):-1:1
                 writeAverageInfo(funcHandle(gr), gr, metricLabel);
             end

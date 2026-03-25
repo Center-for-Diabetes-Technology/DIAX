@@ -52,7 +52,6 @@ The JSON format matches the MATLAB DIAX `toJSON()` export format, with automatic
   - Returns pandas DataFrame with metrics for each subject
 - `lbgi(cgm)`: Low Blood Glucose Index
 - `hbgi(cgm)`: High Blood Glucose Index
-- `rl_score(cgm, thresholds=None, hypo_hyper_ratio=2.0, max_score=10.0)`: Risk Level score
 
 ## Usage Example
 

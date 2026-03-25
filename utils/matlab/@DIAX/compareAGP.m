@@ -13,14 +13,22 @@ else
 end
 clf(fig);
 
+names = {'Subject 1', 'Subject 2'};
+for nVar = 1:2:length(varargin)
+    switch lower(varargin{nVar})
+        case {'name', 'names', 'legend', 'arms'}
+            names = strrep(varargin{nVar+1}, '_', ' ');
+    end
+end
+
 axes1 = gobjects(5,1);
 axes1(4) = subplot('Position', [0.03 0.59 0.22 0.37]);
 axes1(1) = subplot('Position', [0.30 0.57 0.45 0.40]);
 axes1(5) = subplot('Position', [0.78 0.57 0.22 0.37]);
-obj1.plotAGP(axes1);
+obj1.plotAGP(axes1, 'name', names{1});
 
 axes2 = gobjects(5,1);
 axes2(4) = subplot('Position', [0.03 0.09 0.22 0.37]);
 axes2(1) = subplot('Position', [0.30 0.07 0.45 0.40]);
 axes2(5) = subplot('Position', [0.78 0.07 0.22 0.37]);
-obj2.plotAGP(axes2);
+obj2.plotAGP(axes2, 'name', names{2});

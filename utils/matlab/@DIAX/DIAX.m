@@ -4,7 +4,7 @@ classdef DIAX < matlab.mixin.Copyable
     %
     % Data Model:
     %   - Each time-series property (e.g., cgm, bg, bolus, carbs, basalRate, etc.)
-    %     is a MATLAB timetable with columns: time (datetime), value (numeric).
+    %     is a MATLAB timetable with row times Time (datetime) and variable Value (numeric).
     %   - timeSeriesFields enumerates all supported streams.
     %   - carbsCategoryMap and carbsTypeMap provide canonical mappings for meal/treatment annotations.
     %
@@ -24,7 +24,7 @@ classdef DIAX < matlab.mixin.Copyable
     %
     % Typical Workflow:
     %   1) Construct: subj = DIAX('name','P001') or DIAX(jsonFile,'name','P001')
-    %   2) Populate streams: subj.cgm = timetable(time, value); subj.bolus = timetable(time, value); subj.carbs = timetable(time, value); ...
+    %   2) Populate streams: subj.cgm = timetable(Value, 'RowTimes', Time, 'VariableNames', {'Value'}); subj.bolus = timetable(Value, 'RowTimes', Time, 'VariableNames', {'Value'}); subj.carbs = timetable(Value, 'RowTimes', Time, 'VariableNames', {'Value'}); ...
     %   3) Segment/inspect: days = subj.getDays(); week = subj.getWeek(1);
     %   4) Analyze: tir = subj.getTimeIn(70,180); gmi = subj.getGMI(); cv = subj.getGlucoseCV();
     %   5) Visualize/export: subj.plot(); subj.savefig('out/'); subj.toCSV('out/')
@@ -41,6 +41,7 @@ classdef DIAX < matlab.mixin.Copyable
         gender
         TDI
         TBI
+        armName
     end
 
     % timetables properties
@@ -185,8 +186,8 @@ classdef DIAX < matlab.mixin.Copyable
                         time = datetime(jsonData.(jsonField).time);
                     end
 
-                    value = jsonData.(jsonField).value;
-                    obj.(classField) = timetable(time, value);
+                    Value = jsonData.(jsonField).value;
+                    obj.(classField) = timetable(Value, 'RowTimes', time, 'VariableNames', {'Value'});
                     obj.(classField) = unique(obj.(classField), 'rows');
                 end
             end
@@ -196,7 +197,7 @@ classdef DIAX < matlab.mixin.Copyable
             for f = 1:length(field_pos)
                 fld = field_pos{f};
                 if isprop(obj, fld) && ~isempty(obj.(fld))
-                    idxToRemove = obj.(fld).value <= 0;
+                    idxToRemove = obj.(fld).Value <= 0;
                     obj.(fld)(idxToRemove, :) = [];
                 end
             end
@@ -210,7 +211,7 @@ classdef DIAX < matlab.mixin.Copyable
                 hypoVals = unique([map.ht, map.hypo, map.treat]); % numeric codes considered as hypotreatment
 
                 % Normalize category values to numeric using the map
-                catVals = obj.carbsCategory.value;
+                catVals = obj.carbsCategory.Value;
                 n = height(obj.carbsCategory);
                 catNum = NaN(n, 1);
                 for i = 1:n
@@ -231,16 +232,16 @@ classdef DIAX < matlab.mixin.Copyable
 
                 % Times where category is hypotreatment
                 ht_mask = ismember(catNum, hypoVals);
-                ht_times = obj.carbsCategory.time(ht_mask);
+                ht_times = obj.carbsCategory.Time(ht_mask);
 
                 if ~isempty(ht_times)
-                    if isempty(obj.treat), obj.treat = timetable(datetime.empty, [], 'VariableNames', {'value'}); end
+                    if isempty(obj.treat), obj.treat = timetable(zeros(0, 1), 'RowTimes', datetime.empty(0, 1), 'VariableNames', {'Value'}); end
                     for k = 1:numel(ht_times)
                         ht_time = ht_times(k);
                         % find carbs within 1 minute of the HT time
                         idx = [];
                         if ~isempty(obj.carbs)
-                            idx = find(abs(minutes(obj.carbs.time - ht_time)) < 1);
+                            idx = find(abs(minutes(obj.carbs.Time - ht_time)) < 1);
                         end
                         if ~isempty(idx)
                             % move these carbs to hypotreatment
@@ -248,7 +249,7 @@ classdef DIAX < matlab.mixin.Copyable
                             obj.carbs(idx, :) = [];
                         else
                             % add a 15g carb hypotreatment entry
-                            obj.treat = [obj.treat; timetable(ht_time, 15, 'VariableNames', {'value'})];
+                            obj.treat = [obj.treat; timetable(15, 'RowTimes', ht_time, 'VariableNames', {'Value'})];
                         end
                     end
                 end
@@ -291,11 +292,11 @@ classdef DIAX < matlab.mixin.Copyable
                     tt = obj.(classField);
 
                     % Convert datetime to string with timezone
-                    timeStrings = cellstr(datestr(tt.time, 'yyyy-mm-dd HH:MM:SS'));
+                    timeStrings = cellstr(datestr(tt.Time, 'yyyy-mm-dd HH:MM:SS'));
 
                     % Add timezone if available
-                    if ~isempty(tt.time.TimeZone)
-                        tz = tt.time.TimeZone;
+                    if ~isempty(tt.Time.TimeZone)
+                        tz = tt.Time.TimeZone;
                         timeStrings = cellfun(@(s) [s ' ' tz], timeStrings, 'UniformOutput', false);
                     else
                         % Default to UTC if no timezone
@@ -305,7 +306,7 @@ classdef DIAX < matlab.mixin.Copyable
                     % Create field structure
                     jsonData.(jsonField) = struct();
                     jsonData.(jsonField).time = timeStrings;
-                    jsonData.(jsonField).value = tt.value;
+                    jsonData.(jsonField).value = tt.Value;
                 end
             end
 
@@ -384,7 +385,7 @@ classdef DIAX < matlab.mixin.Copyable
                 arrayfun(@(e)(e.shiftTime(val)), obj);
                 return;
             end
-            for fn = obj.fields
+            for fn = obj.timeSeriesFields
                 if isempty(obj.(fn{1}))
                     continue;
                 end
@@ -397,11 +398,8 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     error('shiftTime: val must be numeric days or a duration');
                 end
-                ts.time = ts.time + delta;
+                ts.Time = ts.Time + delta;
                 obj.(fn{1}) = ts;
-            end
-            if ~isempty(obj.raw)
-                obj.raw = [];
             end
         end
 
@@ -412,14 +410,14 @@ classdef DIAX < matlab.mixin.Copyable
             end
 
             % start_t = obj.start
-            for fn = obj.fields
+            for fn = obj.timeSeriesFields
                 if isempty(obj.(fn{1}))
                     continue;
                 end
                 ts = obj.(fn{1});
                 st = startTimestamp;
                 et = endTimestamp;
-                mask = ts.time < st | ts.time > et;
+                mask = ts.Time < st | ts.Time > et;
                 ts = ts(mask, :);
                 obj.(fn{1}) = ts;
             end
@@ -612,7 +610,7 @@ classdef DIAX < matlab.mixin.Copyable
 
         function subjAll = combine(obj)
             eval(sprintf('subjAll = %s();', class(obj)));
-            fields_ = subjAll.fields;
+            fields_ = subjAll.timeSeriesFields;
             for idx = 1:length(fields_)
                 if strcmp(fields_{idx}, 'carbsActual')
                     bb = 1;
@@ -620,7 +618,7 @@ classdef DIAX < matlab.mixin.Copyable
                 subjAll.(fields_{idx}) = vertcat(obj.(fields_{idx}));
                 if ~isempty(subjAll.(fields_{idx}))
                     % Remove duplicate timestamps, keeping first occurrence
-                    [uniqueTime, idxUniqueTime] = unique(subjAll.(fields_{idx}).time);
+                    [uniqueTime, idxUniqueTime] = unique(subjAll.(fields_{idx}).Time);
                     subjAll.(fields_{idx}) = subjAll.(fields_{idx})(idxUniqueTime, :);
                 end
             end
@@ -631,15 +629,20 @@ classdef DIAX < matlab.mixin.Copyable
             else
                 subjAll.name = strjoin(names, '_');
             end
-            subjAll.dateTimeOffset = min([obj.dateTimeOffset]);
-            subjAll.Age = mean([obj.Age]);
-            subjAll.BW = mean([obj.BW]);
-            subjAll.BH = mean([obj.BH]);
-            subjAll.TDI = mean([obj.TDI]);
-            subjAll.TBI = mean([obj.TBI]);
-            subjAll.GBasal = mean([obj.GBasal]);
-            subjAll.IOB0 = mean([obj.IOB0]);
-            subjAll.COB0 = mean([obj.COB0]);
+            subjAll.age = mean([obj.age], 'omitnan');
+            subjAll.t1dDuration = mean([obj.t1dDuration], 'omitnan');
+            subjAll.BW = mean([obj.BW], 'omitnan');
+            subjAll.BH = mean([obj.BH], 'omitnan');
+            subjAll.hbA1c = mean([obj.hbA1c], 'omitnan');
+            subjAll.TDI = mean([obj.TDI], 'omitnan');
+            subjAll.TBI = mean([obj.TBI], 'omitnan');
+
+            if any(~cellfun(@isempty, {obj.gender}))
+                subjAll.gender = obj(find(~cellfun(@isempty, {obj.gender}), 1, 'first')).gender;
+            end
+            if any(~cellfun(@isempty, {obj.armName}))
+                subjAll.armName = obj(find(~cellfun(@isempty, {obj.armName}), 1, 'first')).armName;
+            end
         end
 
         function data = toExcel(obj, fullpath)
@@ -652,17 +655,17 @@ classdef DIAX < matlab.mixin.Copyable
 
         function data = toCSV(obj, fullpath)
             data = struct('time', [], 'timeInMinutes', [], 'type', [], 'value', []);
-            for idx = 1:length(obj.fields)
-                ttName = obj.fields{idx};
+            for idx = 1:length(obj.timeSeriesFields)
+                ttName = obj.timeSeriesFields{idx};
                 tt = obj.(ttName);
                 if ~isempty(tt)
                     if istimetable(tt)
-                        data.time = [data.time; tt.time];
+                        data.time = [data.time; tt.Time];
                         data.type = [data.type; repmat(string(ttName), height(tt), 1)];
-                        if any(strcmp('value', tt.Properties.VariableNames))
-                            data.value = [data.value; tt.value];
+                        if any(strcmp('Value', tt.Properties.VariableNames))
+                            data.value = [data.value; tt.Value];
                         else
-                            % if variable not named 'value', take the first variable
+                            % if variable not named Value, take the first variable
                             vname = tt.Properties.VariableNames{1};
                             data.value = [data.value; tt.(vname)];
                         end
@@ -753,13 +756,13 @@ classdef DIAX < matlab.mixin.Copyable
                 end
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = hours(timeofday(tt.time))*60 + minutes(timeofday(tt.time)) + seconds(timeofday(tt.time))/60;
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
-                        vals = tt.value(mask);
+                        vals = tt.Value(mask);
                         % bin to 5 minutes across days
                         todSel = tod(mask);
                         bins = round(todSel/5)*5;
@@ -767,48 +770,22 @@ classdef DIAX < matlab.mixin.Copyable
                         cgmUnique = accumarray(ib, vals, [], @mean);
                         val = gamma * (log(cgmUnique).^alpha - beta);
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
-                        vals = tt.value(mask);
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
+                        vals = tt.Value(mask);
                         val = gamma * (log(vals).^alpha - beta);
                     end
                 else
                     % retime to a 5-min grid then compute risk
                     try
                         tt5 = retime(tt, 'regular', @mean, 'TimeStep', minutes(5));
-                        vals = tt5.value;
+                        vals = tt5.Value;
                     catch
-                        vals = tt.value;
+                        vals = tt.Value;
                     end
                     val = gamma * (log(vals).^alpha - beta);
                 end
             end
         end
-
-        function val = getRLScore(obj)
-            hypo_hyper_ratio = 2;
-
-            TBR2 = obj.getTimeIn(0, 54);
-            TBR1 = obj.getTimeIn(0, 70);
-            TIR = obj.getTimeIn(70, 180.5);
-            TAR1 = obj.getTimeIn(180.5, inf);
-            TAR2 = obj.getTimeIn(250.5, inf);
-
-            scoreNeg = ...
-                + hypo_hyper_ratio*max(TBR2/1.0 - 1.0, 0.0) ...
-                + hypo_hyper_ratio*max(TBR1/4.0 - 1.0, 0.0) ...
-                + max(TAR1/26.0 - 1.0, 0.0) ...
-                + max(TAR2/5.0 - 1.0, 0.0);
-            scoreNegMax = ...
-                + hypo_hyper_ratio*(1.2 / 1.0 - 1.0) ...
-                + hypo_hyper_ratio*(5.0 / 4.0 - 1.0) ...
-                + (45.0 / 26.0 - 1) ...
-                + (10.0 / 5.0 - 1);
-
-            scorePos = max(TIR / 70.0 - 1.0, 0.0);
-            scorePosMax = (90.0 / 70.0 - 1.0);
-            val = 10*(-(scoreNeg / scoreNegMax) + (scorePos / scorePosMax));
-        end
-
 
         function val = getTimeIn(obj, from, to, interval, intervalIsDaily)
             if nargin < 4
@@ -833,13 +810,13 @@ classdef DIAX < matlab.mixin.Copyable
                 end
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = hours(timeofday(tt.time))*60 + minutes(timeofday(tt.time)) + seconds(timeofday(tt.time))/60;
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
-                        vals = tt.value(mask);
+                        vals = tt.Value(mask);
                         % collapse to 5-min bins across days
                         todSel = tod(mask);
                         bins = round(todSel/5)*5;
@@ -847,17 +824,17 @@ classdef DIAX < matlab.mixin.Copyable
                         cgmUnique = accumarray(ib, vals, [], @mean);
                         val = mean(cgmUnique >= from & cgmUnique < to, 'omitnan') * 100;
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
-                        vals = tt.value(mask);
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
+                        vals = tt.Value(mask);
                         val = mean(vals >= from & vals < to, 'omitnan') * 100;
                     end
                 else
                     % retime to 5-min and compute overall proportion
                     try
                         tt5 = retime(tt, 'regular', @mean, 'TimeStep', minutes(5));
-                        vals = tt5.value;
+                        vals = tt5.Value;
                     catch
-                        vals = tt.value;
+                        vals = tt.Value;
                     end
                     val = mean(vals >= from & vals < to, 'omitnan') * 100;
                 end
@@ -901,13 +878,13 @@ classdef DIAX < matlab.mixin.Copyable
                 end
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = hours(timeofday(tt.time))*60 + minutes(timeofday(tt.time)) + seconds(timeofday(tt.time))/60;
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
-                        vals = tt.value(mask);
+                        vals = tt.Value(mask);
                         % collapse to 5-min bins across days
                         todSel = tod(mask);
                         bins = round(todSel/5)*5;
@@ -915,17 +892,17 @@ classdef DIAX < matlab.mixin.Copyable
                         cgmUnique = accumarray(ib, vals, [], @mean);
                         val = mean(cgmUnique, 'omitnan');
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
-                        vals = tt.value(mask);
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
+                        vals = tt.Value(mask);
                         val = mean(vals, 'omitnan');
                     end
                 else
                     % retime to uniform 5-min grid then average
                     try
                         tt5 = retime(tt, 'regular', @mean, 'TimeStep', minutes(5));
-                        vals = tt5.value;
+                        vals = tt5.Value;
                     catch
-                        vals = tt.value;
+                        vals = tt.Value;
                     end
                     val = mean(vals, 'omitnan');
                 end
@@ -948,7 +925,7 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     tt = obj.smbg;
                 end
-                val = mean(tt.value);
+                val = mean(tt.Value);
             end
         end
 
@@ -965,7 +942,7 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     tt = obj.smbg;
                 end
-                val = std(tt.value);
+                val = std(tt.Value);
             end
         end
 
@@ -982,7 +959,7 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     tt = obj.smbg;
                 end
-                val = 100 * std(tt.value) / mean(tt.value);
+                val = 100 * std(tt.Value) / mean(tt.Value);
             end
         end
 
@@ -999,7 +976,7 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     tt = obj.smbgFasting;
                 end
-                val = mean(tt.value);
+                val = mean(tt.Value);
             end
         end
 
@@ -1016,7 +993,7 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     tt = obj.smbgFasting;
                 end
-                val = std(tt.value);
+                val = std(tt.Value);
             end
         end
 
@@ -1033,7 +1010,7 @@ classdef DIAX < matlab.mixin.Copyable
                 else
                     tt = obj.smbgFasting;
                 end
-                val = 100 * std(tt.value) / mean(tt.value);
+                val = 100 * std(tt.Value) / mean(tt.Value);
             end
         end
 
@@ -1045,7 +1022,7 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = NaN;
             if ~isempty(obj.smbg)
-                val = sum(obj.smbg.value < thresh);
+                val = sum(obj.smbg.Value < thresh);
             end
         end
 
@@ -1057,7 +1034,7 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.treat)
-                val = sum(obj.treat.value == amount);
+                val = sum(obj.treat.Value == amount);
             end
         end
 
@@ -1069,11 +1046,11 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.treat)
-                res = minutes(min(diff(obj.cgm.time)))/2;
+                res = minutes(min(diff(obj.cgm.Time)))/2;
                 for k = 1:height(obj.treat)
-                    treatTime = obj.treat.time(k);
-                    timeDiff = abs(minutes(obj.cgm.time - treatTime));
-                    cgmNear = obj.cgm.value(timeDiff < res);
+                    treatTime = obj.treat.Time(k);
+                    timeDiff = abs(minutes(obj.cgm.Time - treatTime));
+                    cgmNear = obj.cgm.Value(timeDiff < res);
                     if ~isempty(cgmNear) && cgmNear(1) <= thresh
                         val = val + 1;
                     end
@@ -1161,13 +1138,13 @@ classdef DIAX < matlab.mixin.Copyable
                 end
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
-                        vals = tt.value(mask);
+                        vals = tt.Value(mask);
                         % bin to 5 minutes across days
                         todSel = tod(mask);
                         bins = round(todSel/5)*5;
@@ -1175,17 +1152,17 @@ classdef DIAX < matlab.mixin.Copyable
                         cgmUnique = accumarray(ib, vals, [], @mean);
                         val = std(cgmUnique, 'omitnan');
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
-                        vals = tt.value(mask);
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
+                        vals = tt.Value(mask);
                         val = std(vals, 'omitnan');
                     end
                 else
                     % retime to uniform 5-min grid then compute SD
                     try
                         tt5 = retime(tt, 'regular', @mean, 'TimeStep', minutes(5));
-                        vals = tt5.value;
+                        vals = tt5.Value;
                     catch
-                        vals = tt.value;
+                        vals = tt.Value;
                     end
                     val = std(vals, 'omitnan');
                 end
@@ -1215,13 +1192,13 @@ classdef DIAX < matlab.mixin.Copyable
                 end
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
-                        vals = tt.value(mask);
+                        vals = tt.Value(mask);
                         % bin to 5 minutes across days
                         todSel = tod(mask);
                         bins = round(todSel/5)*5;
@@ -1229,17 +1206,17 @@ classdef DIAX < matlab.mixin.Copyable
                         cgmUnique = accumarray(ib, vals, [], @mean);
                         val = 100 * std(cgmUnique, 'omitnan') / mean(cgmUnique, 'omitnan');
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
-                        vals = tt.value(mask);
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
+                        vals = tt.Value(mask);
                         val = 100 * std(vals, 'omitnan') / mean(vals, 'omitnan');
                     end
                 else
                     % retime to uniform 5-min grid then compute CV
                     try
                         tt5 = retime(tt, 'regular', @mean, 'TimeStep', minutes(5));
-                        vals = tt5.value;
+                        vals = tt5.Value;
                     catch
-                        vals = tt.value;
+                        vals = tt.Value;
                     end
                     val = 100 * std(vals, 'omitnan') / mean(vals, 'omitnan');
                 end
@@ -1263,13 +1240,13 @@ classdef DIAX < matlab.mixin.Copyable
                 tt = obj.basalRate;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
-                        vals = tt.value(mask);
+                        vals = tt.Value(mask);
                         % bin to 5 minutes across days
                         todSel = tod(mask);
                         bins = round(todSel/5)*5;
@@ -1277,17 +1254,17 @@ classdef DIAX < matlab.mixin.Copyable
                         insUnique = accumarray(ib, vals, [], @mean);
                         val = 100 * std(insUnique, 'omitnan') / mean(insUnique, 'omitnan');
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
-                        vals = tt.value(mask);
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
+                        vals = tt.Value(mask);
                         val = 100 * std(vals, 'omitnan') / mean(vals, 'omitnan');
                     end
                 else
                     % retime to uniform 5-min grid then compute CV
                     try
                         tt5 = retime(tt, 'regular', @mean, 'TimeStep', minutes(5));
-                        vals = tt5.value;
+                        vals = tt5.Value;
                     catch
-                        vals = tt.value;
+                        vals = tt.Value;
                     end
                     val = 100 * std(vals, 'omitnan') / mean(vals, 'omitnan');
                 end
@@ -1307,7 +1284,7 @@ classdef DIAX < matlab.mixin.Copyable
                 carbActual_ = obj.carbsActual;
             end
             if ~isempty(carbActual_)
-                val = sum(carbActual_.value);
+                val = sum(carbActual_.Value);
             end
         end
 
@@ -1319,7 +1296,7 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.carbs)
-                val = sum(obj.carbs.value);
+                val = sum(obj.carbs.Value);
             end
         end
 
@@ -1331,7 +1308,7 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.carbs)
-                val = sum(obj.carbs.value > 0);
+                val = sum(obj.carbs.Value > 0);
             end
         end
 
@@ -1343,7 +1320,7 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.carbsActual)
-                val = sum(obj.carbsActual.value > 0);
+                val = sum(obj.carbsActual.Value > 0);
             end
         end
 
@@ -1355,7 +1332,19 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.treat)
-                val = sum(obj.treat.value);
+                val = sum(obj.treat.Value);
+            end
+        end
+
+        function val = getNumTreat(obj)
+            if numel(obj) > 1
+                val = arrayfun(@(e)(e.getNumTreat()), obj, 'UniformOutput', false);
+                val = [val{:}];
+                return;
+            end
+            val = 0;
+            if ~isempty(obj.treat)
+                val = sum(obj.treat.Value > 0);
             end
         end
 
@@ -1375,16 +1364,16 @@ classdef DIAX < matlab.mixin.Copyable
                 if ~isempty(obj.basalRate)
                     tt = obj.basalRate;
                     if height(tt) > 1
-                        contrib = [hours(diff(tt.time)); hours(0)] .* tt.value; % units
+                        contrib = [hours(diff(tt.Time)); hours(0)] .* tt.Value; % units
                         if intervalIsDaily
-                            tod = minutes(timeofday(tt.time));
+                            tod = minutes(timeofday(tt.Time));
                             if interval(2) > interval(1)
                                 mask = (tod >= interval(1)) & (tod < interval(2));
                             else
                                 mask = (tod >= interval(1)) | (tod < interval(2));
                             end
                         else
-                            mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                            mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                         end
                         val = val + sum(contrib(mask));
                     end
@@ -1392,17 +1381,17 @@ classdef DIAX < matlab.mixin.Copyable
                 if ~isempty(obj.basalInj)
                     tt = obj.basalInj;
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     if any(mask)
-                        val = val + sum(tt.value(mask));
+                        val = val + sum(tt.Value(mask));
                     end
                 end
             else
@@ -1410,11 +1399,11 @@ classdef DIAX < matlab.mixin.Copyable
                 if ~isempty(obj.basalRate)
                     tt = obj.basalRate;
                     if height(tt) > 1
-                        val = val + sum(hours(diff(tt.time)) .* tt.value(1:end-1));
+                        val = val + sum(hours(diff(tt.Time)) .* tt.Value(1:end-1));
                     end
                 end
                 if ~isempty(obj.basalInj)
-                    val = val + sum(obj.basalInj.value);
+                    val = val + sum(obj.basalInj.Value);
                 end
             end
         end
@@ -1437,18 +1426,18 @@ classdef DIAX < matlab.mixin.Copyable
             if ~isempty(interval)
                 tt = obj.bolus;
                 if intervalIsDaily
-                    tod = minutes(timeofday(tt.time));
+                    tod = minutes(timeofday(tt.Time));
                     if interval(2) > interval(1)
                         mask = (tod >= interval(1)) & (tod < interval(2));
                     else
                         mask = (tod >= interval(1)) | (tod < interval(2));
                     end
                 else
-                    mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                    mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                 end
-                val = val + sum(tt.value(mask));
+                val = val + sum(tt.Value(mask));
             else
-                val = val + sum(obj.bolus.value);
+                val = val + sum(obj.bolus.Value);
             end
         end
 
@@ -1470,18 +1459,18 @@ classdef DIAX < matlab.mixin.Copyable
             if ~isempty(interval)
                 tt = obj.bolusCarb;
                 if intervalIsDaily
-                    tod = minutes(timeofday(tt.time));
+                    tod = minutes(timeofday(tt.Time));
                     if interval(2) > interval(1)
                         mask = (tod >= interval(1)) & (tod < interval(2));
                     else
                         mask = (tod >= interval(1)) | (tod < interval(2));
                     end
                 else
-                    mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                    mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                 end
-                val = val + sum(tt.value(mask));
+                val = val + sum(tt.Value(mask));
             else
-                val = val + sum(obj.bolusCarb.value);
+                val = val + sum(obj.bolusCarb.Value);
             end
         end
 
@@ -1503,18 +1492,18 @@ classdef DIAX < matlab.mixin.Copyable
             if ~isempty(interval)
                 tt = obj.bolusCorr;
                 if intervalIsDaily
-                    tod = minutes(timeofday(tt.time));
+                    tod = minutes(timeofday(tt.Time));
                     if interval(2) > interval(1)
                         mask = (tod >= interval(1)) & (tod < interval(2));
                     else
                         mask = (tod >= interval(1)) | (tod < interval(2));
                     end
                 else
-                    mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                    mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                 end
-                val = val + sum(tt.value(mask));
+                val = val + sum(tt.Value(mask));
             else
-                val = val + sum(obj.bolusCorr.value);
+                val = val + sum(obj.bolusCorr.Value);
             end
         end
 
@@ -1554,9 +1543,9 @@ classdef DIAX < matlab.mixin.Copyable
             %     startDate_ = floor(obj.startDate);
             % else
             if ~isempty(obj.basalInj)
-                startTimestamp_ = obj.basalInj.time(1);
+                startTimestamp_ = obj.basalInj.Time(1);
             elseif ~isempty(obj.basalRate)
-                startTimestamp_ = obj.basalRate.time(1);
+                startTimestamp_ = obj.basalRate.Time(1);
             else
                 val = 0;
                 return;
@@ -1566,18 +1555,18 @@ classdef DIAX < matlab.mixin.Copyable
             val = 0;
             if ~isempty(obj.basalInj)
                 tt = obj.basalInj;
-                basalTime_ = tt.time;
-                basal_ = tt.value;
+                basalTime_ = tt.Time;
+                basal_ = tt.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     basal_ = basal_(mask);
                     basalTime_ = basalTime_(mask);
@@ -1590,18 +1579,18 @@ classdef DIAX < matlab.mixin.Copyable
                 val = mean(dailyBasal);
             elseif ~isempty(obj.basalRate)
                 tt = obj.basalRate;
-                basalTime_ = tt.time;
-                basal_ = tt.value;
+                basalTime_ = tt.Time;
+                basal_ = tt.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     basal_ = basal_(mask);
                     basalTime_ = basalTime_(mask);
@@ -1637,18 +1626,18 @@ classdef DIAX < matlab.mixin.Copyable
             tt = obj.bolus;
             if ~isempty(interval)
                 if intervalIsDaily
-                    tod = minutes(timeofday(tt.time));
+                    tod = minutes(timeofday(tt.Time));
                     if interval(2) > interval(1)
                         mask = (tod >= interval(1)) & (tod < interval(2));
                     else
                         mask = (tod >= interval(1)) | (tod < interval(2));
                     end
                 else
-                    mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                    mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                 end
-                val = val + sum(tt.value(mask) > thresh);
+                val = val + sum(tt.Value(mask) > thresh);
             else
-                val = val + sum(tt.value > thresh);
+                val = val + sum(tt.Value > thresh);
             end
         end
 
@@ -1673,18 +1662,18 @@ classdef DIAX < matlab.mixin.Copyable
             tt = obj.bolusCarb;
             if ~isempty(interval)
                 if intervalIsDaily
-                    tod = minutes(timeofday(tt.time));
+                    tod = minutes(timeofday(tt.Time));
                     if interval(2) > interval(1)
                         mask = (tod >= interval(1)) & (tod < interval(2));
                     else
                         mask = (tod >= interval(1)) | (tod < interval(2));
                     end
                 else
-                    mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                    mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                 end
-                val = val + sum(tt.value(mask) > thresh);
+                val = val + sum(tt.Value(mask) > thresh);
             else
-                val = val + sum(tt.value > thresh);
+                val = val + sum(tt.Value > thresh);
             end
         end
 
@@ -1709,18 +1698,18 @@ classdef DIAX < matlab.mixin.Copyable
             tt = obj.bolusCorr;
             if ~isempty(interval)
                 if intervalIsDaily
-                    tod = minutes(timeofday(tt.time));
+                    tod = minutes(timeofday(tt.Time));
                     if interval(2) > interval(1)
                         mask = (tod >= interval(1)) & (tod < interval(2));
                     else
                         mask = (tod >= interval(1)) | (tod < interval(2));
                     end
                 else
-                    mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                    mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                 end
-                val = val + sum(tt.value(mask) > thresh);
+                val = val + sum(tt.Value(mask) > thresh);
             else
-                val = val + sum(tt.value > thresh);
+                val = val + sum(tt.Value > thresh);
             end
         end
 
@@ -1734,9 +1723,9 @@ classdef DIAX < matlab.mixin.Copyable
             end
             val = 0;
             if ~isempty(obj.bolus)
-                bolusTime = obj.bolus.time(obj.bolus.value > thresh);
-                % bolusValue = obj.bolus.value(obj.bolus.value > thresh);
-                carbTime = obj.carbsActual.time(obj.carbsActual.value > 0);
+                bolusTime = obj.bolus.Time(obj.bolus.Value > thresh);
+                % bolusValue = obj.bolus.Value(obj.bolus.Value > thresh);
+                carbTime = obj.carbsActual.Time(obj.carbsActual.Value > 0);
                 cnt = 0;
                 for k = 1:length(bolusTime)
                     timeDiffMinutes = minutes(bolusTime(k) - carbTime);
@@ -1769,7 +1758,7 @@ classdef DIAX < matlab.mixin.Copyable
             %     startDate_ = floor(obj.startDate);
             % else
             if ~isempty(obj.semaInj)
-                startTimestamp_ = obj.semaInj.time(1);
+                startTimestamp_ = obj.semaInj.Time(1);
             else
                 val = 0;
                 return;
@@ -1779,18 +1768,18 @@ classdef DIAX < matlab.mixin.Copyable
             val = 0;
             if ~isempty(obj.semaInj)
                 tt = obj.semaInj;
-                semaTime_ = tt.time;
-                sema_ = tt.value;
+                semaTime_ = tt.Time;
+                sema_ = tt.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     sema_ = sema_(mask);
                     semaTime_ = semaTime_(mask);
@@ -1818,24 +1807,24 @@ classdef DIAX < matlab.mixin.Copyable
             if obj.duration > days(3)
                 startTimestamp_ = dateshift(obj.startDate, 'start', 'day');
             elseif ~isempty(obj.bolus)
-                startTimestamp_ = obj.bolus.time(1);
+                startTimestamp_ = obj.bolus.Time(1);
             end
 
             val = 0;
             if ~isempty(obj.bolus)
                 tt = obj.bolus;
-                bolusTime_ = tt.time;
-                bolus_ = tt.value;
+                bolusTime_ = tt.Time;
+                bolus_ = tt.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     bolus_ = bolus_(mask);
                     bolusTime_ = bolusTime_(mask);
@@ -1861,18 +1850,18 @@ classdef DIAX < matlab.mixin.Copyable
             val = 0;
             if ~isempty(obj.carbs)
                 tt = obj.carbs;
-                carbTime_ = tt.time;
-                carb_ = tt.value;
+                carbTime_ = tt.Time;
+                carb_ = tt.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     carb_ = carb_(mask);
                     carbTime_ = carbTime_(mask);
@@ -1902,18 +1891,18 @@ classdef DIAX < matlab.mixin.Copyable
                 carbActual_ = obj.carbsActual;
             end
             if ~isempty(carbActual_)
-                carbTime_ = carbActual_.time;
-                carb_ = carbActual_.value;
+                carbTime_ = carbActual_.Time;
+                carb_ = carbActual_.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(carbActual_.time));
+                        tod = minutes(timeofday(carbActual_.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (carbActual_.time >= interval(1)) & (carbActual_.time < interval(2));
+                        mask = (carbActual_.Time >= interval(1)) & (carbActual_.Time < interval(2));
                     end
                     carb_ = carb_(mask);
                     carbTime_ = carbTime_(mask);
@@ -1932,13 +1921,13 @@ classdef DIAX < matlab.mixin.Copyable
             end
             events_ = [];
             if ~isempty(obj.carbsActual)
-                events_ = obj.carbsActual.value;
+                events_ = obj.carbsActual.Value;
             end
             if ~isempty(obj.carbs)
-                events_ = obj.carbs.value;
+                events_ = obj.carbs.Value;
             end
             if ~isempty(obj.carbsCategory)
-                events_ = obj.carbsCategory.value;
+                events_ = obj.carbsCategory.Value;
             end
             val = sum(events_ > 0);
         end
@@ -1957,18 +1946,18 @@ classdef DIAX < matlab.mixin.Copyable
             val = 0;
             if ~isempty(obj.treat)
                 tt = obj.treat;
-                treatTime_ = tt.time;
-                treat_ = tt.value;
+                treatTime_ = tt.Time;
+                treat_ = tt.Value;
                 if ~isempty(interval)
                     if intervalIsDaily
-                        tod = minutes(timeofday(tt.time));
+                        tod = minutes(timeofday(tt.Time));
                         if interval(2) > interval(1)
                             mask = (tod >= interval(1)) & (tod < interval(2));
                         else
                             mask = (tod >= interval(1)) | (tod < interval(2));
                         end
                     else
-                        mask = (tt.time >= interval(1)) & (tt.time < interval(2));
+                        mask = (tt.Time >= interval(1)) & (tt.Time < interval(2));
                     end
                     treat_ = treat_(mask);
                     treatTime_ = treatTime_(mask);
@@ -2131,7 +2120,7 @@ classdef DIAX < matlab.mixin.Copyable
             val = NaN;
             if ~isempty(obj.basalInj)
                 tt = obj.basalInj;
-                basalInjsTime = minutes(timeofday(tt.time));
+                basalInjsTime = minutes(timeofday(tt.Time));
                 basalTimeClock = angle(cos(2 * pi * basalInjsTime / 1440)+1i*sin(2 * pi * basalInjsTime / 1440)) * 1440 / (2 * pi);
 
                 % check if 2 clusters are possible
@@ -2149,7 +2138,7 @@ classdef DIAX < matlab.mixin.Copyable
 
                 [~, idxClosest] = min(abs(basalInjsTime - usualBasalTime(:)'), [], 2);
                 for k = length(usualBasalTime):-1:1
-                    usualBasalVal(k) = sum(tt.value(idxClosest == k)) / numel(unique(floor(days(tt.time(idxClosest == k) - tt.time(1)))));
+                    usualBasalVal(k) = sum(tt.Value(idxClosest == k)) / numel(unique(floor(days(tt.Time(idxClosest == k) - tt.Time(1)))));
                 end
 
                 val = usualBasalVal(:);
@@ -2174,7 +2163,7 @@ classdef DIAX < matlab.mixin.Copyable
             end
         end
 
-        function obj = set.id(obj, val)
+        function set.id(obj, val)
             obj.name = sprintf('P%03d', val);
         end
 
@@ -2199,8 +2188,8 @@ classdef DIAX < matlab.mixin.Copyable
             val = NaT;
             for fn = obj.timeSeriesFields
                 ts = obj.(fn{1});
-                if ~isempty(ts)
-                    t0 = ts.time(1);
+                if istimetable(ts) && ~isempty(ts) && isdatetime(ts.Time)
+                    t0 = ts.Time(1);
                     if isnat(val)
                         val = t0;
                     else
@@ -2215,8 +2204,8 @@ classdef DIAX < matlab.mixin.Copyable
             val = NaT;
             for fn = obj.timeSeriesFields
                 ts = obj.(fn{1});
-                if istimetable(ts) && ~isempty(ts)
-                    t1 = ts.time(end);
+                if istimetable(ts) && ~isempty(ts) && isdatetime(ts.Time)
+                    t1 = ts.Time(end);
                     if isnat(val)
                         val = t1;
                     else
@@ -2232,7 +2221,7 @@ classdef DIAX < matlab.mixin.Copyable
                 val = NaN;
             else
                 tod = timeofday(obj.startDate);
-                val = hours(tod)*60 + minutes(tod) + seconds(tod)/60;
+                val = mod(minutes(tod), 1440);
             end
         end
 
@@ -2242,7 +2231,7 @@ classdef DIAX < matlab.mixin.Copyable
                 val = NaN;
             else
                 tod = timeofday(obj.endDate);
-                val = hours(tod)*60 + minutes(tod) + seconds(tod)/60;
+                val = mod(minutes(tod), 1440);
             end
         end
 
@@ -2259,7 +2248,7 @@ classdef DIAX < matlab.mixin.Copyable
             val = minutes(0);
             if ~isempty(obj.cgm)
                 if istimetable(obj.cgm)
-                    dt = minutes(diff(obj.cgm.time));
+                    dt = minutes(diff(obj.cgm.Time));
                     if ~isempty(dt)
                         med = median(dt, 'omitnan');
                         dt(dt > 10*med) = [];
@@ -2281,31 +2270,25 @@ classdef DIAX < matlab.mixin.Copyable
 
         function set.startDate(obj, val)
             % Trim all timetable series to start at or after the provided datetime
-            for fn = obj.fields
+            for fn = obj.timeSeriesFields
                 ts = obj.(fn{1});
                 if ~isempty(ts)
-                    mask = ts.time < val;
+                    mask = ts.Time < val;
                     ts(mask, :) = [];
                     obj.(fn{1}) = ts;
                 end
-            end
-            if ~isempty(obj.raw)
-                obj.raw = [];
             end
         end
 
         function set.endDate(obj, val)
             % Trim all timetable series to end at or before the provided datetime
-            for fn = obj.fields
+            for fn = obj.timeSeriesFields
                 ts = obj.(fn{1});
                 if istimetable(ts) && ~isempty(ts)
-                    mask = ts.time > val;
+                    mask = ts.Time > val;
                     ts(mask, :) = [];
                     obj.(fn{1}) = ts;
                 end
-            end
-            if ~isempty(obj.raw)
-                obj.raw = [];
             end
         end
     end
@@ -2391,4 +2374,5 @@ classdef DIAX < matlab.mixin.Copyable
             cpObj = copyElement@matlab.mixin.Copyable(obj);
         end
     end
+
 end

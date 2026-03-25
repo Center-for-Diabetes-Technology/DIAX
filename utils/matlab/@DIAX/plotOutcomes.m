@@ -38,7 +38,7 @@ fieldsNamesDefault = {...
     'Carb Amount (g)' ...
     'Semaglutide (mg)'
     };
-fields = {'GMI', 'Smbg', 'SmbgCV', 'TIR', 'Insulin', 'SmbgHypo2', 'SmbgHypo1', 'TBR1'};
+fields = {'TIR', 'TBR1', 'TAR1', 'Insulin', 'Basal', 'Bolus'};
 fieldsNames = {};
 titleString = '';
 perctMin = 0.8;
@@ -80,6 +80,12 @@ if ~iscell(names)
 end
 if isempty(shortnames)
     shortnames = names;
+end
+
+if ~isempty(outcomes) && ~isa(outcomes,'function_handle')
+    availableFields = fieldnames(outcomes{1});
+    idxMissing = ~ismember(fields, availableFields);
+    fields(idxMissing) = [];
 end
 if isempty(fieldsNames)
     for kk = length(fields):-1:1
