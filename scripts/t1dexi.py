@@ -1,14 +1,126 @@
+import datetime
+import json
+import os
+import glob
+
+import numpy as np
 import pandas as pd
 import polars as pl
-import numpy as np
-import os
-import sys
-import json
-import datetime
+
 
 epoch_1960 = datetime.datetime(1960, 1, 1, 0, 0, 0)
 
-def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
+
+def preprocess_t1dexi(data_source):
+    """Load and pre-process T1DEXI datasets, creating per-subject pickles for FA/VS."""
+    # FAMLPM (carbs)
+    famlpm_pkl = os.path.join(data_source, "FAMLPM.pkl")
+    if not os.path.exists(famlpm_pkl):
+        FAMLPM_all = pd.read_sas(os.path.join(data_source, "FAMLPM.xpt"), encoding="cp1252")
+        FAMLPM_all = FAMLPM_all[FAMLPM_all["FATEST"] == "Dietary Total Carbohydrates"]
+        FAMLPM_all = FAMLPM_all[FAMLPM_all["FACAT"] == "CONSUMED"]
+        FAMLPM_all["time"] = pd.to_datetime(
+            FAMLPM_all["FADTC"], unit="s", origin=datetime.datetime(1960, 1, 1)
+        )
+        FAMLPM_all.to_pickle(famlpm_pkl)
+    else:
+        FAMLPM_all = pd.read_pickle(famlpm_pkl)
+
+    # DX and CM
+    DX_all = pd.read_sas(os.path.join(data_source, "DX.xpt"), encoding="cp1252")
+    DX_all = DX_all[DX_all["DXTRT"] != "INSULIN PUMP"]
+
+    CM_all = pd.read_sas(os.path.join(data_source, "CM.xpt"), encoding="cp1252")
+    CM_all = CM_all[
+        CM_all["CMSCAT"].isin([
+            "MDI, BOLUS INSULIN",
+            "MDI, BASAL INSULIN",
+            "PUMP OR CLOSED LOOP",
+        ])
+    ]
+    CM_all = CM_all[
+        ~CM_all["CMTRT"].isin([
+            "BASAL INSULIN",
+            "BOLUS INSULIN",
+            "PUMP OR CLOSED LOOP INSULIN",
+        ])
+    ]
+
+    # FACM
+    facm_pkl = os.path.join(data_source, "FACM.pkl")
+    if not os.path.exists(facm_pkl):
+        FACM_all = pd.read_sas(os.path.join(data_source, "FACM.xpt"), encoding="cp1252")
+        FACM_all.to_pickle(facm_pkl)
+    else:
+        FACM_all = pd.read_pickle(facm_pkl)
+
+    # LB
+    lb_pkl = os.path.join(data_source, "LB.pkl")
+    if not os.path.exists(lb_pkl):
+        LB_all = pd.read_sas(os.path.join(data_source, "LB.xpt"), encoding="cp1252")
+        LB_all.to_pickle(lb_pkl)
+    else:
+        LB_all = pd.read_pickle(lb_pkl)
+
+    # FA (chunked per subject)
+    fa_files = glob.glob(os.path.join(data_source, "FA_*.pkl"))
+    if not fa_files:
+        itr = pd.read_sas(os.path.join(data_source, "FA.xpt"), chunksize=10000000, encoding="cp1252")
+        for i, chunk in enumerate(itr):
+            print(f"Processing FA chunk {i}")
+            chunk = chunk[["USUBJID", "FADTC", "FATESTCD", "FAORRES"]]
+            for subj, df_subj in chunk.groupby("USUBJID"):
+                subj_path = os.path.join(data_source, f"FA_{subj}.pkl")
+                if os.path.exists(subj_path):
+                    df_existing = pd.read_pickle(subj_path)
+                    pd.concat([df_existing, df_subj], ignore_index=True).to_pickle(subj_path)
+                else:
+                    df_subj.to_pickle(subj_path)
+        fa_files = glob.glob(os.path.join(data_source, "FA_*.pkl"))
+
+    # VS (chunked per subject)
+    vs_files = glob.glob(os.path.join(data_source, "VS_*.pkl"))
+    if not vs_files:
+        itr = pd.read_sas(os.path.join(data_source, "VS.xpt"), chunksize=10000000, encoding="cp1252")
+        for i, chunk in enumerate(itr):
+            print(f"Processing VS chunk {i}")
+            chunk = chunk[["USUBJID", "VSDTC", "VSCAT", "VSTEST", "VSSTRESC", "VSORRES", "VSORRESU"]]
+            for subj, df_subj in chunk.groupby("USUBJID"):
+                subj_path = os.path.join(data_source, f"VS_{subj}.pkl")
+                if os.path.exists(subj_path):
+                    df_existing = pd.read_pickle(subj_path)
+                    pd.concat([df_existing, df_subj], ignore_index=True).to_pickle(subj_path)
+                else:
+                    df_subj.to_pickle(subj_path)
+        vs_files = glob.glob(os.path.join(data_source, "VS_*.pkl"))
+
+    FA_subjs = {os.path.basename(f).replace("FA_", "").replace(".pkl", "") for f in fa_files}
+    VS_subjs = {os.path.basename(f).replace("VS_", "").replace(".pkl", "") for f in vs_files}
+
+    subjects = (
+        set(FAMLPM_all["USUBJID"]).intersection(set(DX_all["USUBJID"]))
+        .intersection(set(CM_all["USUBJID"]))
+        .intersection(set(FACM_all["USUBJID"]))
+        .intersection(set(LB_all["USUBJID"]))
+        .intersection(FA_subjs)
+        .intersection(VS_subjs)
+    )
+
+    return {
+        "FAMLPM_all": FAMLPM_all,
+        "DX_all": DX_all,
+        "CM_all": CM_all,
+        "FACM_all": FACM_all,
+        "LB_all": LB_all,
+        "FA_subjs": FA_subjs,
+        "VS_subjs": VS_subjs,
+        "subjects": sorted(subjects),
+        "data_source": data_source,
+    }
+
+
+def process_subj_t1dexi(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
+    """Process a single T1DEXI subject and write JSON."""
     # convert to polars for faster processing
     FAMLPM = pl.from_pandas(FAMLPM)
     FACM = pl.from_pandas(FACM)
@@ -54,6 +166,7 @@ def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
         basal_data = basal_data.fill_null(0)
         basal_type = "pump"
     else:
+        print('loading injection data')
         basal_data = FACM.filter(pl.col("INSDVSRC") == "Injections").with_columns(
             pl.col("FAORRES").str.strip_chars().cast(pl.Float64)
         )
@@ -71,7 +184,6 @@ def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
     )
     if bolus_data.height == 0:
         print(f"Subject has no bolus data, skipping subject: {output_path}")
-        return None
     start_time_bolus = bolus_data["time"][0]
 
     # LB Data Processing (CGM)
@@ -247,6 +359,7 @@ def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
         output['metadata']['bolus']['insulin'] = insulin_type
 
     elif basal_type == "injection":
+        print(f"Subject {subject} has basal insulin by injection, checking for insulin type in CM dataset.")
         basal_insulin_type = CM[CM['CMSCAT'] == 'MDI, BASAL INSULIN']['CMTRT'].unique().tolist()
         if len(basal_insulin_type) == 0:
             basal_insulin_type = "UNKNOWN"
@@ -281,132 +394,47 @@ def process_subject(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path):
     return output
 
 
-if __name__ == "__main__":
-    data_source = "../../data_raw/T1DEXI - DATA FOR UPLOAD/"
+def process_all_t1dexi(data_source, output_dir):
+    """Process all T1DEXI subjects given a data source directory."""
+    os.makedirs(output_dir, exist_ok=True)
+    prep = preprocess_t1dexi(data_source)
 
-    if not os.path.exists(f"{data_source}/FAMLPM.pkl"):
-        # Load the FAMLPM dataset from the SAS XPT file
-        # The encoding is set to 'cp1252' to handle special characters correctly
-        # This file contains dietary intake data
-        print("Loading FAMLPM dataset...")
-        FAMLPM_all = pd.read_sas(f"{data_source}/FAMLPM.xpt", encoding="cp1252")
-        FAMLPM_all = FAMLPM_all[FAMLPM_all['FATEST'] == 'Dietary Total Carbohydrates']  # get only carb data
-        FAMLPM_all = FAMLPM_all[FAMLPM_all['FACAT'] == 'CONSUMED']  # make sure it is consumed
-        FAMLPM_all['time'] = pd.to_datetime(FAMLPM_all['FADTC'], unit='s', origin=datetime.datetime(1960, 1, 1))
-        # save it to pickle file for faster loading next time
-        FAMLPM_all.to_pickle(f"{data_source}/FAMLPM.pkl")
-    else:
-        print("Loading FAMLPM dataset from pickle...")
-        FAMLPM_all = pd.read_pickle(f"{data_source}/FAMLPM.pkl")
+    for subject in prep["subjects"]:
+        FAMLPM = prep["FAMLPM_all"][prep["FAMLPM_all"]["USUBJID"] == subject]
+        DX = prep["DX_all"][prep["DX_all"]["USUBJID"] == subject]
+        CM = prep["CM_all"][prep["CM_all"]["USUBJID"] == subject]
+        FACM = prep["FACM_all"][prep["FACM_all"]["USUBJID"] == subject]
+        LB = prep["LB_all"][prep["LB_all"]["USUBJID"] == subject]
 
-    DX_all = pd.read_sas(f"{data_source}/DX.xpt", encoding="cp1252")
-    DX_all = DX_all[DX_all['DXTRT'] != 'INSULIN PUMP']  # remove the generic insulin pump entry
-
-    CM_all = pd.read_sas(f"{data_source}/CM.xpt", encoding="cp1252")
-    CM_all = CM_all[CM_all['CMSCAT'].isin(['MDI, BOLUS INSULIN', 'MDI, BASAL INSULIN', 'PUMP OR CLOSED LOOP'])] # we care about: 'MDI, BOLUS INSULIN', 'MDI, BASAL INSULIN', 'PUMP OR CLOSED LOOP'
-    CM_all = CM_all[~CM_all['CMTRT'].isin(['BASAL INSULIN', 'BOLUS INSULIN', 'PUMP OR CLOSED LOOP INSULIN'])]  # just keep medication names
-
-    if not os.path.exists(f"{data_source}/FA_1.pkl"):
-        # FA dataset is too large to fit in memory, so we will process it in chunks and save each subject's data into separate pickle files
-
-        itr = pd.read_sas(f'{data_source}/FA.xpt', chunksize=10000000, encoding="cp1252")
-        i = 0
-        FA_subjs = set()
-        for chunk in itr:
-            print(f"Processing FA chunk {i}")
-            chunk = chunk[['USUBJID', 'FADTC', 'FATESTCD', 'FAORRES']]  # keep only relevant columns to reduce size
-            # save each subject into separate pickle files
-            grps = chunk.groupby('USUBJID')
-            for subj, df_subj in grps:
-                subj_path = f"{data_source}/FA_{subj}.pkl"
-                FA_subjs.add(subj)
-                if os.path.exists(subj_path):
-                    df_existing = pd.read_pickle(subj_path)
-                    df_combined = pd.concat([df_existing, df_subj], ignore_index=True)
-                    df_combined.to_pickle(subj_path)
-                else:
-                    df_subj.to_pickle(subj_path)
-            i += 1
-    else:
-        FA_subjs = set()
-        import glob
-        for f in glob.glob(f"{data_source}/FA_*.pkl"):
-            subj = os.path.basename(f).replace("FA_", "").replace(".pkl", "")
-            FA_subjs.add(subj)
-
-    if not os.path.exists(f"{data_source}/VS_1.pkl"):
-        # VS dataset is too large to fit in memory, so we will process it in chunks and save each subject's data into separate pickle files
-
-        itr = pd.read_sas(f'{data_source}/VS.xpt', chunksize=10000000, encoding="cp1252")
-        i = 0
-        for chunk in itr:
-            print(f"Processing VS chunk {i}")
-            chunk = chunk[["USUBJID", "VSDTC", "VSCAT", "VSTEST", "VSSTRESC", "VSORRES", "VSORRESU"]]  # keep only relevant columns to reduce size
-            # save each subject into separate pickle files
-            grps = chunk.groupby('USUBJID')
-            for subj, df_subj in grps:
-                subj_path = f"{data_source}/VS_{subj}.pkl"
-                if os.path.exists(subj_path):
-                    df_existing = pd.read_pickle(subj_path)
-                    df_combined = pd.concat([df_existing, df_subj], ignore_index=True)
-                    df_combined.to_pickle(subj_path)
-                else:
-                    df_subj.to_pickle(subj_path)
-            i += 1
-    else:
-        import glob
-        for f in glob.glob(f"{data_source}/VS_*.pkl"):
-            subj = os.path.basename(f).replace("VS_", "").replace(".pkl", "")
-            FA_subjs.add(subj)
-
-    if not os.path.exists(f"{data_source}/FACM.pkl"):
-        FACM_all = pd.read_sas(f"{data_source}/FACM.xpt", encoding="cp1252")
-        FACM_all.to_pickle(f"{data_source}/FACM.pkl") 
-    else:
-        FACM_all = pd.read_pickle(f"{data_source}/FACM.pkl")
-
-    if not os.path.exists(f"{data_source}/LB.pkl"):
-        LB_all = pd.read_sas(f"{data_source}/LB.xpt", encoding="cp1252")
-        LB_all.to_pickle(f"{data_source}/LB.pkl")
-    else:
-        LB_all = pd.read_pickle(f"{data_source}/LB.pkl")
-
-    # get subjects that are in all datasets
-    subjects = set(FAMLPM_all['USUBJID']).\
-        intersection(set(DX_all['USUBJID'])).\
-        intersection(set(CM_all['USUBJID'])).\
-        intersection(set(FACM_all['USUBJID'])).\
-        intersection(set(LB_all['USUBJID'])).\
-        intersection(FA_subjs).\
-        intersection(FA_subjs) 
-
-    print(f"Found {len(subjects)} subjects with all required datasets.")
-    subjects = list(subjects)
-
-    output_dir = '../../diax/T1DEXI/'
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-
-    args_list = []
-    for subject in subjects:
-        FAMLPM = FAMLPM_all[FAMLPM_all['USUBJID'] == subject]
-        DX = DX_all[DX_all['USUBJID'] == subject]
-        CM = CM_all[CM_all['USUBJID'] == subject]
-        FACM = FACM_all[FACM_all['USUBJID'] == subject]
-        LB = LB_all[LB_all['USUBJID'] == subject]
-        FA = pd.read_pickle(f"{data_source}/FA_{subject}.pkl")
-        VS = pd.read_pickle(f"{data_source}/VS_{subject}.pkl")
+        # FA and VS are large, so we saved them as separate pickles per subject during preprocessing
+        FA = pd.read_pickle(os.path.join(prep["data_source"], f"FA_{subject}.pkl"))
+        VS = pd.read_pickle(os.path.join(prep["data_source"], f"VS_{subject}.pkl"))
         output_path = os.path.join(output_dir, f"T1Dexi_{subject}.json")
 
-        if (len(FAMLPM) == 0) or (len(DX) == 0) or (len(CM) == 0) or (len(FACM) == 0) or (len(LB) == 0) or (len(FA) == 0) or (len(VS) == 0):
+        if (
+            len(FAMLPM) == 0
+            or len(DX) == 0
+            or len(CM) == 0
+            or len(FACM) == 0
+            or len(LB) == 0
+            or len(FA) == 0
+            or len(VS) == 0
+        ):
             print(f"Skipping subject {subject} due to missing data in one of the datasets.")
             continue
 
-        args_list.append((FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path))
-    
-    # with multiprocessing.Pool(processes=20) as pool:
-    #     pool.starmap(process_subject, args_list)
-    for args in args_list:
-        process_subject(*args)
+        process_subj_t1dexi(FAMLPM, DX, CM, FACM, LB, FA, VS, subject, output_path)
+
+    return len(prep["subjects"])
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Process all T1DEXI subjects.")
+    parser.add_argument("--source", required=True, help="Path to T1DEXI data directory.")
+    parser.add_argument("--output", required=True, help="Output directory for JSON files.")
+    args = parser.parse_args()
+
+    count = process_all_t1dexi(args.source, args.output)
+    print(f"Processed {count} subjects.")
