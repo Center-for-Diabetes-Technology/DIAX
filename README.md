@@ -102,6 +102,44 @@ Additional subfields `device` and `insulin` can be added as applicable.
 
 ---
 
+## Script Usage
+
+Command line example:
+```bash
+python scripts/dclp5.py --source ../../data_raw/DCLP5 --output ../../diax/DCLP5
+```
+
+Local import example:
+```python
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "scripts")))
+import dclp5
+
+dclp5.process_all_dclp5(
+    data_source="../../data_raw/DCLP5",
+    output_dir="../../diax/DCLP5",
+)
+```
+
+Time alignment example:
+```python
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "scripts")))
+from time_align import time_align
+
+df = time_align(
+    diax_data="../../diax/DCLP5/DCLP5_subject_123.json",
+    sampling_period=5,
+)
+print(df.head())
+```
+
+---
+
 ## Existing datasets
 | Dataset Name | Number of subjects | Available keys                                                         | Source                                                       | Reference                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 |--------------|--------------------|------------------------------------------------------------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -110,8 +148,11 @@ Additional subfields `device` and `insulin` can be added as applicable.
 | PEDAP        | 99                 |  cgm basal_rate bolus smbg carbs   height weight                       | jaeb.org - PEDAP Public Dataset - Release 5 - 2025-05-12.zip | Wadwa, R. P., Reed, Z. W., Buckingham, B. A., DeBoer, M. D., Ekhlaspour,   L., Forlenza, G. P., Schoelwer, M., Lum, J., Kollman, C., Beck, R. W., &   Breton, M. D. (2023). Trial of Hybrid Closed-Loop Control in Young Children   with Type 1 Diabetes. New England Journal of Medicine, 388(11),   991–1001. https://doi.org/10.1056/nejmoa2210834                                                                                                                                         |
 | T1DEXI       | 404                |  cgm basal_rate basal_inj bolus heart_rate   steps carbs height weight |                                                              | Riddell, M. C., Li, Z., Gal, R. L., Calhoun, P., Jacobs, P. G., Clements,   M. A., Martin, C. K., Doyle III, F. J., Patton, S. R., Castle, J. R.,   Gillingham, M. B., Beck, R. W., Rickels, M. R., & Group, T. S. (2023).   Examining the Acute Glycemic Effects of Different Types of Structured   Exercise Sessions in Type 1 Diabetes in a Real-World Setting: The Type 1   Diabetes and Exercise Initiative (T1DEXI). Diabetes Care, 46(4),   704–713. https://doi.org/10.2337/dc22-1721 |
 | IOBP2        | 343                |  cgm basal_rate bolus smbg   carb_category height weight               | jaeb.org - IOBP2 RCT Public Dataset.zip                      | Bionic Pancreas Research Group. (2022). Multicenter, Randomized Trial of   a Bionic Pancreas in Type 1 Diabetes. New England Journal   of Medicine, 387(13), 1161–1172. https://doi.org/10.1056/NEJMoa2205225                                                                                                                                                                                                                                                                                 |
+| LOOP         | 845                |  cgm basal_rate bolus smbg carbs                                       | jaeb.org - Loop study public dataset 2023-01-31.zip          | Lum JW, Bailey RJ, Barnes-Lomen V, Naranjo D, Hood KK, Lal RA, Arbiter B, Brown AS, DeSalvo DJ, Pettus J, Calhoun P, Beck RW. A Real-World Prospective Study of the Safety and Effectiveness of the Loop Open Source Automated Insulin Delivery System. Diabetes Technol Ther. 2021 May;23(5):367-375. doi: 10.1089/dia.2020.0535. Epub 2021 Apr 12. PMID: 33226840; PMCID: PMC8080906. |
 
 ---
+
+The source of the data is provided by the Jaeb Center for Health Research and funded by the Helmsley Charitable Trust, but the analyses, content and conclusions presented herein are solely the responsibility of the authors and have not been reviewed or approved by the study sponsor.
 
 ## Planned Extensions
 - Integration with online data repositories.
